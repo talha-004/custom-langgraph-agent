@@ -1,9 +1,15 @@
 import { ChatGroq } from "@langchain/groq";
-import { MessagesAnnotation, StateGraph } from "@langchain/langgraph";
+import {
+  MemorySaver,
+  MessagesAnnotation,
+  StateGraph,
+} from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { TavilySearch } from "@langchain/tavily";
 import { log } from "node:console";
 import readline from "node:readline/promises";
+
+const checkpointer = new MemorySaver();
 
 // agent tools
 const tool = new TavilySearch({
@@ -22,7 +28,9 @@ const llm = new ChatGroq({
 
 // agent function
 async function callModel(state) {
-  console.log("calling llm");
+  if (state.messages.length === 1) {
+    console.log("Generating a response...");
+  }
   const response = await llm.invoke(state.messages);
   return { messages: [response] };
 }
@@ -46,7 +54,7 @@ const workflow = new StateGraph(MessagesAnnotation)
   .addConditionalEdges("agent", shouldContinue);
 
 // compile the workflow
-const app = workflow.compile();
+const app = workflow.compile({ checkpointer });
 
 async function main() {
   const rl = readline.createInterface({
@@ -58,9 +66,12 @@ async function main() {
     const userInput = await rl.question("You: ");
     if (userInput === "/bye") break;
 
-    const finalState = await app.invoke({
-      messages: [{ role: "human", content: userInput }],
-    });
+    const finalState = await app.invoke(
+      {
+        messages: [{ role: "human", content: userInput }],
+      },
+      { configurable: { thread_id: "1" } },
+    );
 
     console.log("AI:", finalState.messages.at(-1)?.content);
   }
